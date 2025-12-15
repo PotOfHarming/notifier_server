@@ -1,0 +1,27 @@
+{
+    "alert": {
+        "id": "Antonov-Alerter",
+        "title": "Antonov alert",
+        "description": ""
+    },
+    "notification": {
+        "title": "Antonov alert ($hex;)",
+        "body": "Antonov located at $lat;, $lon;!",
+        "image": "https://www.planespotters.net/hex/$hex;"
+    },
+    "filters": {
+        "hex": {
+            "type": "OR",
+            "values": [
+                { "type": "EQUALS", "value": "50801B"},
+                { "type": "EQUALS", "value": "50801C"},
+                { "type": "EQUALS", "value": "50801D"},
+                { "type": "EQUALS", "value": "508015"},
+                { "type": "EQUALS", "value": "508003"},
+                { "type": "EQUALS", "value": "50801F"},
+                { "type": "EQUALS", "value": "508020"},
+                { "type": "EQUALS", "value": "3944f8"}
+            ]
+        }
+    }
+}

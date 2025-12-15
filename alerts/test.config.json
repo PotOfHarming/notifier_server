@@ -1,0 +1,20 @@
+{
+    "alert": {
+        "id": "EXAMPLE",
+        "title": "EXAMPLE ALERT",
+        "description": "will not find anything this is just to show what it would look like"
+    },
+    "notification": {
+        "title": "Plane alert! ($hex;, $flight;)",
+        "body": "Found plane $hex; as flight $flight; (Found at $lat;, $lon; at $altitude;ft going $speed;kts with a heading of $track;)",
+        "image": "https://www.planespotters.net/hex/$hex;"
+    },
+    "filters": {
+        "altitude": {
+            "type": "OR",
+            "values": [
+                { "type": "GREATER_THAN", "value": 0 }
+            ]
+        }
+    }
+}

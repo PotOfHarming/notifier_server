@@ -1,0 +1,27 @@
+{
+    "alert": {
+        "id": "EXAMPLE",
+        "title": "EXAMPLE ALERT",
+        "description": "will not find anything this is just to show what it would look like"
+    },
+    "notification": {
+        "title": "Plane alert! ($hex;, $flight;)",
+        "body": "Found plane $hex; as flight $flight; (Found at $lat;, $lon; at $altitude;ft going $speed;kts with a heading of $track;)",
+        "image": "https://cdn.plnspttrs.net/17868/ph-bcl-klm-royal-dutch-airlines-boeing-737-8k2-wl_PlanespottersNet_1732215_d1f6897550_o.jpg"
+    },
+    "filters": {
+        "hex": {
+            "type": "OR",
+            "values": [
+                { "type": "EQUALS", "value": "50801B"},
+                { "type": "EQUALS", "value": "50801C"},
+                { "type": "EQUALS", "value": "50801D"},
+                { "type": "EQUALS", "value": "508015"},
+                { "type": "EQUALS", "value": "508003"},
+                { "type": "EQUALS", "value": "50801F"},
+                { "type": "EQUALS", "value": "508020"},
+                { "type": "EQUALS", "value": "3944f8"}
+            ]
+        }
+    }
+}
