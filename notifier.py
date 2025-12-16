@@ -30,3 +30,11 @@ def sendMessage(msgTitle, msgBody, msgImg=None, msgTopic="all"):
     messaging.send(msg)
 
 # sendMessage("Boom", "Je bent een boom van een kerel", "https://hetbosderomarming.nl/wp-content/uploads/2020/09/47439162_s.jpg")
+if __name__ == '__name__':
+    title: str = str(input("Input a title: "))
+    desc: str = str(input("Input a description: "))
+    img: str = str(input("Input the url of an image (leave empty if none)"))
+    if img=="":
+        sendMessage(title, desc)
+    else:
+        sendMessage(title, desc, img)
