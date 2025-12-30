@@ -32,8 +32,19 @@ def get_records():
             stats = {"total_planes": len(f.readlines())}
     else:
         stats = ["Could not find found_hex.txt"]
+    uptime_seconds = int(time.time() - psutil.boot_time())
+    hours = uptime_seconds // 3600
+    minutes = (uptime_seconds % 3600) // 60
+    seconds = uptime_seconds % 60
     
-    return jsonify([records, stats])
+    return jsonify([
+        records, 
+        stats,
+        {
+            "uptime_seconds": uptime_seconds,
+            "uptime_formatted": f"{hours}h {minutes}m {seconds}s"
+        }
+    ])
 
 @app.route('/hexes', methods=['GET'])
 def get_hexes():
@@ -56,10 +67,7 @@ def get_uptime():
     hours = uptime_seconds // 3600
     minutes = (uptime_seconds % 3600) // 60
     seconds = uptime_seconds % 60
-    return jsonify({
-        "uptime_seconds": uptime_seconds,
-        "uptime_formatted": f"{hours}h {minutes}m {seconds}s"
-    })
+    return jsonify()
 
 @app.route('/systeminfo', methods=['GET'])
 def get_systeminfo():
