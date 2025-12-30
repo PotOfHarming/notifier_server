@@ -1,0 +1,9 @@
+{
+    "url": "http://192.168.1.1:8008/data.json",
+    "reloadEvery": 300,
+    "firebase_file_path": "",
+    "location": {
+        "lat": 0.0,
+        "lng": 0.0
+    }
+}
