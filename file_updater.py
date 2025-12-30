@@ -80,7 +80,7 @@ def write_uptime():
         json.dump(data, f, indent=2)
 
 def write_systeminfo():
-    cpu_percent = psutil.cpu_percent(interval=1)
+    cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
     

@@ -47,7 +47,6 @@ def getDistance(location) -> float:
     return round(dist, 2)
 
 newPlanes = []
-uniqueHexs = []
 maxStats = {"distance": 0, "altitude": 0, "speed": 0}
 minStats = {"distance": 0, "altitude": 0, "speed": 0}
 totals = {"distance": 0, "altitude": 0, "speed": 0}
@@ -88,8 +87,9 @@ def createStats():
             "altitude": None if minStats["altitude"] == 0 else minStats["altitude"],
             "speed": None if minStats["speed"] == 0 else minStats["speed"]
         },
-        "new": uniqueHexs
+        "new": newPlanes
     }
+    newPlanes = []
     with open(os.path.join(BASE_PATH, "flight-stats", "times", fileName), "w") as f:
         f.write(json.dumps(jsonData, indent=4))
 
@@ -124,8 +124,8 @@ def checkStats(dist, alt, spd):
 loadFilters(online=True)
 time.sleep(2)
 
-reloadStatsEvery = 300
-reloadFilesEvery = 5
+reloadStatsEvery = 30
+reloadFilesEvery = 15
 
 records = {
     "distance": None, # furthest distance
@@ -159,36 +159,39 @@ while True:
                 with open(os.path.join(BASE_PATH, "flight-stats", "records", "records.json"), "r") as f:
                     records = json.load(f)
 
-
-            newMax = [None, None, None]
-            for plane in data:
-                # Check seen coordinates
-                seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
-                seen_coords = []
-                if os.path.exists(seen_file):
-                    with open(seen_file, "r") as f:
-                        for line in f:
+            # Load files once per iteration, not per plane
+            seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
+            seen_coords = []
+            if os.path.exists(seen_file):
+                with open(seen_file, "r") as f:
+                    for line in f:
+                        try:
                             seen_coords.append(json.loads(line.strip()))
+                        except:
+                            pass
+            
+            found_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
+            found_hexes = []
+            if os.path.exists(found_file):
+                with open(found_file, "r") as f:
+                    found_hexes = [line.strip() for line in f.readlines()]
+
+            for plane in data:
+                newMax = [None, None, None]
                 
                 coord_key = [round(plane["lat"], 3), round(plane["lon"], 3)]
                 if coord_key not in seen_coords:
+                    seen_coords.append(coord_key)
                     with open(seen_file, "a") as f:
                         json.dump(coord_key, f)
                         f.write("\n")
 
                 # open file, check if it contains plane hex, if not add it
-                found_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
-                found_hexes = []
-                if os.path.exists(found_file):
-                    with open(found_file, "r") as f:
-                        found_hexes = [line.strip() for line in f.readlines()]
                 if plane["hex"] not in found_hexes:
                     newPlanes.append(plane["hex"])
+                    found_hexes.append(plane["hex"])
                     with open(found_file, "a") as f:
                         f.write(plane["hex"] + "\n")
-
-                if plane["hex"] not in found_hexes:
-                    uniqueHexs.append(plane["hex"])
 
                 dist = getDistance((plane["lat"], plane["lon"]))
 
@@ -223,9 +226,9 @@ while True:
                         sendMessage(v[1], v[2], v[3])
                         print("notification sent!")
 
-            newMax = [item for item in newMax if item is not None]
-            if len(newMax) > 0: 
-                updateStats(plane, dist, '\n'+'\n'.join(f" - {m}" for m in newMax))
+                newMax = [item for item in newMax if item is not None]
+                if len(newMax) > 0: 
+                    updateStats(plane, dist, '\n'+'\n'.join(f" - {m}" for m in newMax))
         except ValueError:
             print("Failed to parse JSON")
     else:
@@ -236,6 +239,12 @@ while True:
     if num_reloadStats>reloadStatsEvery:
         num_reloadStats = 0
         createStats()
+        # Clear accumulated data
+        newPlanes = []
+        maxStats = {"distance": 0, "altitude": 0, "speed": 0}
+        minStats = {"distance": 0, "altitude": 0, "speed": 0}
+        totals = {"distance": 0, "altitude": 0, "speed": 0}
+        amounts = {"distance": 0, "altitude": 0, "speed": 0}
     if num_reloadFiles>reloadFilesEvery:
         num_reloadFiles = 0
         file_updater.update_all()
