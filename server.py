@@ -1,7 +1,9 @@
 from flask import Flask, jsonify
+from flask_cors import CORS
 import json, os, time, psutil
 
 app = Flask(__name__)
+CORS(app)
 BASE_PATH = os.path.dirname(__file__)
 
 records_file = os.path.join(BASE_PATH, "flight-stats", "records", "records.json")

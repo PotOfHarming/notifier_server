@@ -48,10 +48,10 @@ def getDistance(location) -> float:
 
 newPlanes = []
 uniqueHexs = []
-maxStats = [0, 0, 0] # distance, altitude, speed
-minStats = [0, 0, 0] # distance, altitude, speed
-totals = [0, 0, 0] # distance, altitude, speed
-amounts = [0, 0, 0] # distance, altitude, speed
+maxStats = {"distance": 0, "altitude": 0, "speed": 0}
+minStats = {"distance": 0, "altitude": 0, "speed": 0}
+totals = {"distance": 0, "altitude": 0, "speed": 0}
+amounts = {"distance": 0, "altitude": 0, "speed": 0}
 
 def getAverage(value1, value2, decimals=2):
     if value1==None or value1==0 or value2==None or value2==0:
@@ -74,19 +74,19 @@ def createStats():
         "epoch": epoch,
         "planes": len(newPlanes),
         "max": {
-            "dist": None if maxStats[0] == 0 else maxStats[0],
-            "alt": None if maxStats[1] == 0 else maxStats[1],
-            "spd": None if maxStats[2] == 0 else maxStats[2]
+            "distance": None if maxStats["distance"] == 0 else maxStats["distance"],
+            "altitude": None if maxStats["altitude"] == 0 else maxStats["altitude"],
+            "speed": None if maxStats["speed"] == 0 else maxStats["speed"]
         },
         "avg": {
-            "dist": getAverage(totals[0], amounts[0]),
-            "alt": getAverage(totals[1], amounts[1]),
-            "spd": getAverage(totals[2], amounts[2])
+            "distance": getAverage(totals["distance"], amounts["distance"]),
+            "altitude": getAverage(totals["altitude"], amounts["altitude"]),
+            "speed": getAverage(totals["speed"], amounts["speed"])
         },
         "min": {
-            "dist": None if minStats[0] == 0 else minStats[0],
-            "alt": None if minStats[1] == 0 else minStats[1],
-            "spd": None if minStats[2] == 0 else minStats[2]
+            "distance": None if minStats["distance"] == 0 else minStats["distance"],
+            "altitude": None if minStats["altitude"] == 0 else minStats["altitude"],
+            "speed": None if minStats["speed"] == 0 else minStats["speed"]
         },
         "new": uniqueHexs
     }
@@ -97,39 +97,39 @@ def createStats():
 def checkStats(dist, alt, spd):
     # distance
     if dist is not None and dist > 0:
-        totals[0] += dist
-        amounts[0] += 1
-        if dist > maxStats[0]:
-            maxStats[0] = dist
-        if dist < minStats[0] or minStats[0]==0:
-            minStats[0] = dist
+        totals["distance"] += dist
+        amounts["distance"] += 1
+        if dist > maxStats["distance"]:
+            maxStats["distance"] = dist
+        if dist < minStats["distance"] or minStats["distance"]==0:
+            minStats["distance"] = dist
     # altitude
     if alt is not None and alt > 0:
-        totals[1] += alt
-        amounts[1] += 1
-        if alt > maxStats[1]:
-            maxStats[1] = alt
-        if alt < minStats[1] or minStats[1]==0:
-            minStats[1] = alt
+        totals["altitude"] += alt
+        amounts["altitude"] += 1
+        if alt > maxStats["altitude"]:
+            maxStats["altitude"] = alt
+        if alt < minStats["altitude"] or minStats["altitude"]==0:
+            minStats["altitude"] = alt
     # speed
     if spd is not None and spd > 0:
-        totals[2] += spd
-        amounts[2] += 1
-        if spd > maxStats[2]:
-            maxStats[2] = spd
-        if spd < minStats[2] or minStats[2]==0:
-            minStats[2] = spd
+        totals["speed"] += spd
+        amounts["speed"] += 1
+        if spd > maxStats["speed"]:
+            maxStats["speed"] = spd
+        if spd < minStats["speed"] or minStats["speed"]==0:
+            minStats["speed"] = spd
         
 
 loadFilters(online=True)
 time.sleep(2)
 
 reloadStatsEvery = 300
-records = [
-    None, # furthest distance
-    None, # highest plane
-    None # fastest plane
-]
+records = {
+    "distance": None, # furthest distance
+    "altitude": None, # highest plane
+    "speed": None # fastest plane
+}
 
 def updateStats(plane, dist, extra):
     with open(os.path.join(BASE_PATH, "flight-stats", "records", "records.json"), "w") as f:
@@ -194,16 +194,16 @@ while True:
                     plane["altitude"],
                     plane["speed"]
                 )
-                if records[0]==None or dist > records[0]:
-                    records[0]=dist
+                if records["distance"]==None or dist > records["distance"]:
+                    records["distance"]=dist
                     newMax[0] = f"Distance = {dist}km"
                     print(f"Distance = {dist}km")
-                if records[1]==None or plane["altitude"]>records[1]:
-                    records[1]=plane["altitude"]
+                if records["altitude"]==None or plane["altitude"]>records["altitude"]:
+                    records["altitude"]=plane["altitude"]
                     newMax[1] = f"Altitude = {plane["altitude"]}ft"
                     print(f"Altitude = {plane["altitude"]}ft")
-                if records[2]==None or plane["speed"]>records[2]:
-                    records[2]=plane["speed"]
+                if records["speed"]==None or plane["speed"]>records["speed"]:
+                    records["speed"]=plane["speed"]
                     newMax[2] = f"Speed = {plane["speed"]}kts"
                     print(f"Speed = {plane["speed"]}kts")
 

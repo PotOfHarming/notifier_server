@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plane Locations Map</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #map {
+            flex: 1;
+            filter: grayscale(50%);
+        }
+        .info-panel {
+            padding: 10px;
+            background: #f0f0f0;
+            border-top: 1px solid #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status {
+            font-size: 14px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info-panel">
+        <span class="status">Loading...</span>
+        <button onclick="refreshMap()">Refresh</button>
+    </div>
+
+    <script>
+        const API_URL = 'http://162.19.205.125:9001/locations';
+        let map;
+        let markers = [];
+
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        function clearMarkers() {
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+        }
+
+        function loadLocations() {
+            fetch(API_URL)
+                .then(response => response.json())
+                .then(data => {
+                    clearMarkers();
+                    
+                    if (Array.isArray(data) && data.length > 0) {
+                        data.forEach(coord => {
+                            if (Array.isArray(coord) && coord.length === 2) {
+                                const [lat, lon] = coord;
+                                const marker = L.circleMarker([lat, lon], {
+                                    radius: 5,
+                                    fillColor: '#7777ff',
+                                    color: '#7777ff',
+                                    weight: 1,
+                                    opacity: 0.5,
+                                    fillOpacity: 0.5
+                                }).bindPopup(`${lat.toFixed(3)}, ${lon.toFixed(3)}`).addTo(map);
+                                markers.push(marker);
+                            }
+                        });
+
+                        // Fit map to all markers
+                        if (markers.length > 0) {
+                            const group = new L.featureGroup(markers);
+                            map.fitBounds(group.getBounds().pad(0.1));
+                        }
+
+                        document.querySelector('.status').textContent = `Loaded ${markers.length} locations`;
+                    } else {
+                        document.querySelector('.status').textContent = 'No locations found';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.querySelector('.status').textContent = 'Error loading locations';
+                });
+        }
+
+        function refreshMap() {
+            document.querySelector('.status').textContent = 'Refreshing...';
+            loadLocations();
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initMap();
+            loadLocations();
+            // Auto-refresh every 30 seconds
+            setInterval(loadLocations, 30000);
+        });
+    </script>
+</body>
+</html>
