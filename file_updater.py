@@ -1,27 +1,24 @@
-from flask import Flask, jsonify
-from flask_cors import CORS
 import json, os, time, psutil
 
-app = Flask(__name__)
-CORS(app)
 BASE_PATH = os.path.dirname(__file__)
+
+with open(os.path.join(BASE_PATH, "config.json")) as f:
+    config = json.load(f)
+WEB_PATH = config.get("web_path", BASE_PATH)
 
 records_file = os.path.join(BASE_PATH, "flight-stats", "records", "records.json")
 stats_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
 hexes_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
 seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
 
-
-@app.route('/config', methods=['GET'])
-def get_config():
+def write_config():
     with open(os.path.join(BASE_PATH, "config.json")) as f:
         config = json.load(f)
-    return jsonify({
-        "url": config["url"]
-    })
+    output_file = os.path.join(WEB_PATH, "config.json")
+    with open(output_file, "w") as f:
+        json.dump({"url": config["url"]}, f, indent=2)
 
-@app.route('/stats', methods=['GET'])
-def get_records():
+def write_stats():
     if os.path.exists(records_file):
         with open(records_file, "r") as f:
             records = json.load(f)
@@ -37,45 +34,58 @@ def get_records():
     minutes = (uptime_seconds % 3600) // 60
     seconds = uptime_seconds % 60
     
-    return jsonify({
+    output_file = os.path.join(WEB_PATH, "stats.json")
+    data = {
         "records": records, 
         "total_planes": stats,
         "uptime": {
             "seconds": uptime_seconds,
             "formatted": f"{hours}h {minutes}m {seconds}s"
         }
-    })
+    }
+    with open(output_file, "w") as f:
+        json.dump(data, f, indent=2)
 
-@app.route('/hexes', methods=['GET'])
-def get_hexes():
+def write_hexes():
     with open(hexes_file, "r") as f:
         hexes = [line.strip() for line in f.readlines()] or ["Could not find found_hex.txt"]
-    return jsonify(hexes)
+    output_file = os.path.join(WEB_PATH, "hexes.json")
+    with open(output_file, "w") as f:
+        json.dump(hexes, f, indent=2)
 
-@app.route('/locations', methods=['GET'])
-def get_locations():
+def write_locations():
     coords = []
     if os.path.exists(seen_file):
         with open(seen_file, "r") as f:
             for line in f:
-                coords.append(json.loads(line.strip()))
-    return jsonify(coords)
+                try:
+                    coords.append(json.loads(line.strip()))
+                except:
+                    pass
+    output_file = os.path.join(WEB_PATH, "locations.json")
+    with open(output_file, "w") as f:
+        json.dump(coords, f, indent=2)
 
-@app.route('/uptime', methods=['GET'])
-def get_uptime():
+def write_uptime():
     uptime_seconds = int(time.time() - psutil.boot_time())
     hours = uptime_seconds // 3600
     minutes = (uptime_seconds % 3600) // 60
     seconds = uptime_seconds % 60
-    return jsonify()
+    output_file = os.path.join(WEB_PATH, "uptime.json")
+    data = {
+        "uptime_seconds": uptime_seconds,
+        "uptime_formatted": f"{hours}h {minutes}m {seconds}s"
+    }
+    with open(output_file, "w") as f:
+        json.dump(data, f, indent=2)
 
-@app.route('/systeminfo', methods=['GET'])
-def get_systeminfo():
+def write_systeminfo():
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
     
-    return jsonify({
+    output_file = os.path.join(WEB_PATH, "systeminfo.json")
+    data = {
         "cpu": {
             "percent": cpu_percent,
             "cores": psutil.cpu_count(logical=False),
@@ -93,7 +103,25 @@ def get_systeminfo():
             "free_gb": round(disk.free / (1024**3), 2),
             "percent": disk.percent
         }
-    })
+    }
+    with open(output_file, "w") as f:
+        json.dump(data, f, indent=2)
+
+def update_all():
+    print("Writing all data to files")
+    try:
+        write_config()
+        write_stats()
+        write_hexes()
+        write_locations()
+        write_uptime()
+        write_systeminfo()
+        print(f"Updated all files at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception as e:
+        print(f"Error updating files: {e}")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8009, debug=False)
+    update_interval = 30  # seconds
+    while True:
+        update_all()
+        time.sleep(update_interval)

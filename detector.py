@@ -2,7 +2,7 @@ from notifier import sendMessage
 from checkFound import checkJSON
 from geopy import distance
 
-import json, requests, os, checkAlert, datetime, time
+import json, requests, os, checkAlert, datetime, time, file_updater
 
 BASE_PATH = os.path.dirname(__file__)
 
@@ -125,6 +125,8 @@ loadFilters(online=True)
 time.sleep(2)
 
 reloadStatsEvery = 300
+reloadFilesEvery = 5
+
 records = {
     "distance": None, # furthest distance
     "altitude": None, # highest plane
@@ -143,8 +145,9 @@ def updateStats(plane, dist, extra):
         recordsFile.write(recordStr)
 
 
-num_reload: int = 0
+num_reloadConfig: int = 0
 num_reloadStats: int = 0
+num_reloadFiles: int = 0
 while True:
     req = requests.get(URL)
     if req.status_code == 200:
@@ -227,13 +230,17 @@ while True:
             print("Failed to parse JSON")
     else:
         print(f"Failed to fetch ({req.status_code})")
-    if num_reload>reloadEvery:
-        num_reload = 0
+    if num_reloadConfig>reloadEvery:
+        num_reloadConfig = 0
         loadFilters()
     if num_reloadStats>reloadStatsEvery:
         num_reloadStats = 0
         createStats()
+    if num_reloadFiles>reloadFilesEvery:
+        num_reloadFiles = 0
+        file_updater.update_all()
     
-    num_reload+=1
+    num_reloadConfig+=1
     num_reloadStats+=1
+    num_reloadFiles+=1
     time.sleep(1)
