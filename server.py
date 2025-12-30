@@ -29,22 +29,22 @@ def get_records():
         records = ["Could not find records.json"]
     if os.path.exists(stats_file):
         with open(stats_file, "r") as f:
-            stats = {"total_planes": len(f.readlines())}
+            stats = len(f.readlines())
     else:
-        stats = ["Could not find found_hex.txt"]
+        stats = "Could not find found_hex.txt"
     uptime_seconds = int(time.time() - psutil.boot_time())
     hours = uptime_seconds // 3600
     minutes = (uptime_seconds % 3600) // 60
     seconds = uptime_seconds % 60
     
-    return jsonify([
-        records, 
-        stats,
-        {
-            "uptime_seconds": uptime_seconds,
-            "uptime_formatted": f"{hours}h {minutes}m {seconds}s"
+    return jsonify({
+        "records": records, 
+        "total_planes": stats,
+        "uptime": {
+            "seconds": uptime_seconds,
+            "formatted": f"{hours}h {minutes}m {seconds}s"
         }
-    ])
+    })
 
 @app.route('/hexes', methods=['GET'])
 def get_hexes():
