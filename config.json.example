@@ -7,5 +7,6 @@
         "lng": 0.0
     },
     "enableDebug": false,
-    "web_path": ""
+    "web_path": "",
+    "limit_distance": 2000
 }

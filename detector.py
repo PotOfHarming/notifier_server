@@ -89,7 +89,6 @@ def createStats():
         },
         "new": newPlanes
     }
-    newPlanes = []
     with open(os.path.join(BASE_PATH, "flight-stats", "times", fileName), "w") as f:
         f.write(json.dumps(jsonData, indent=4))
 
@@ -148,10 +147,21 @@ def updateStats(plane, dist, extra):
 num_reloadConfig: int = 0
 num_reloadStats: int = 0
 num_reloadFiles: int = 0
+limit_distance: float = float(config["limit_distance"])
 while True:
     req = requests.get(URL)
     if req.status_code == 200:
         try:
+            # Load files once per iteration, not per plane
+            seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
+            found_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
+
+            if not os.path.exists(seen_file):
+                with open(seen_file, "w") as f: f.close()
+            if not os.path.exists(found_file):
+                with open(found_file, "w") as f: f.close()
+            
+
             data = req.json()
             if debugMode: print(data)
 
@@ -159,8 +169,6 @@ while True:
                 with open(os.path.join(BASE_PATH, "flight-stats", "records", "records.json"), "r") as f:
                     records = json.load(f)
 
-            # Load files once per iteration, not per plane
-            seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
             seen_coords = []
             if os.path.exists(seen_file):
                 with open(seen_file, "r") as f:
@@ -170,16 +178,20 @@ while True:
                         except:
                             pass
             
-            found_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
             found_hexes = []
             if os.path.exists(found_file):
                 with open(found_file, "r") as f:
                     found_hexes = [line.strip() for line in f.readlines()]
 
             for plane in data:
+                dist = getDistance((plane["lat"], plane["lon"]))
+                if limit_distance!=-1:
+                    if dist > limit_distance:
+                        if debugMode: print(f"skipping: {dist}, {limit_distance}")
+                        continue
                 newMax = [None, None, None]
                 
-                coord_key = [round(plane["lat"], 3), round(plane["lon"], 3)]
+                coord_key = [round(plane["lat"], 3), round(plane["lon"], 3), round(plane["altitude"], 0)]
                 if coord_key not in seen_coords:
                     seen_coords.append(coord_key)
                     with open(seen_file, "a") as f:
@@ -192,8 +204,6 @@ while True:
                     found_hexes.append(plane["hex"])
                     with open(found_file, "a") as f:
                         f.write(plane["hex"] + "\n")
-
-                dist = getDistance((plane["lat"], plane["lon"]))
 
                 checkStats(
                     dist,

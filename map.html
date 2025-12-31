@@ -20,7 +20,7 @@
         }
         #map {
             flex: 1;
-            filter: grayscale(50%);
+            filter: grayscale(70%);
         }
         .info-panel {
             padding: 10px;
@@ -58,17 +58,58 @@
         let map;
         let markers = [];
 
+        function getMarkerRadius() {
+            const zoom = map ? map.getZoom() : 2;
+            if (zoom >= 15) return 5;
+            if (zoom >= 11) return 3.5;
+            if (zoom >= 6) return 2;
+            return 1;
+        }
+
+        function getAltitudeColor(altitude) {
+            // Gradient from blue (0) -> purple (20k) -> red (40k) -> black (60k+)
+            const maxAlt = 75000;
+            const norm = Math.min(altitude / maxAlt, 1); // normalize 0-1
+            
+            let r, g, b;
+            if (norm < 0.267) { // 0-20k: blue to purple
+                const t = norm / 0.267;
+                r = Math.round(128 * t);
+                g = 0;
+                b = Math.round(255 - 128 * t);
+            } else if (norm < 0.533) { // 20k-40k: purple to red
+                const t = (norm - 0.267) / 0.266;
+                r = Math.round(128 + 127 * t);
+                g = 0;
+                b = Math.round(128 - 128 * t);
+            } else { // 40k-75k: red to black
+                const t = (norm - 0.533) / 0.467;
+                r = Math.round(255 - 255 * t);
+                g = 0;
+                b = 0;
+            }
+            
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
         function initMap() {
             map = L.map('map').setView([20, 0], 2);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 19
             }).addTo(map);
+
+            map.on('zoomend', updateMarkerSizes);
         }
 
         function clearMarkers() {
             markers.forEach(marker => map.removeLayer(marker));
             markers = [];
+        }
+
+        function updateMarkerSizes() {
+            const radius = getMarkerRadius();
+            markers.forEach(marker => marker.setRadius(radius));
         }
 
         function loadLocations() {
@@ -78,17 +119,20 @@
                     clearMarkers();
                     
                     if (Array.isArray(data) && data.length > 0) {
+                        const radius = getMarkerRadius();
                         data.forEach(coord => {
-                            if (Array.isArray(coord) && coord.length === 2) {
-                                const [lat, lon] = coord;
+                            if (Array.isArray(coord) && coord.length >= 2) {
+                                const [lat, lon, alt] = coord;
+                                const altitude = alt || 0;
+                                const color = getAltitudeColor(altitude);
                                 const marker = L.circleMarker([lat, lon], {
-                                    radius: 5,
-                                    fillColor: '#7777ff',
-                                    color: '#7777ff',
+                                    radius,
+                                    fillColor: color,
+                                    color: color,
                                     weight: 1,
-                                    opacity: 0.5,
-                                    fillOpacity: 0.5
-                                }).bindPopup(`${lat.toFixed(3)}, ${lon.toFixed(3)}`).addTo(map);
+                                    opacity: 0.7,
+                                    fillOpacity: 0.6
+                                }).bindPopup(`${lat.toFixed(3)}, ${lon.toFixed(3)}<br>${altitude.toLocaleString()}ft`).addTo(map);
                                 markers.push(marker);
                             }
                         });
@@ -97,6 +141,7 @@
                         if (markers.length > 0) {
                             const group = new L.featureGroup(markers);
                             map.fitBounds(group.getBounds().pad(0.1));
+                            updateMarkerSizes();
                         }
 
                         document.querySelector('.status').textContent = `Loaded ${markers.length} locations`;
@@ -120,7 +165,7 @@
             initMap();
             loadLocations();
             // Auto-refresh every 30 seconds
-            setInterval(loadLocations, 30000);
+            setInterval(loadLocations, 90000);
         });
     </script>
 </body>
