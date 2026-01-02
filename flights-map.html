@@ -49,6 +49,18 @@
             font-size: 13px;
             min-width: 180px;
         }
+        .scan-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            min-width: 200px;
+        }
+        .scan-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
         #flight-list {
             padding: 6px 8px;
             border-radius: 4px;
@@ -132,6 +144,15 @@
                 </select>
             </label>
         </div>
+        <div class="scan-controls">
+            <span>Find flights in range (ft):</span>
+            <div class="scan-row">
+                <input id="alt-scan-min" type="number" min="0" max="75000" step="500" value="0" style="width: 100px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <span>-</span>
+                <input id="alt-scan-max" type="number" min="0" max="75000" step="500" value="10000" style="width: 100px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <button onclick="loadFlightsInRange()">Find & Draw</button>
+        </div>
         <div class="range-filter">
             <div class="slider-row">
                 <span>Altitude range (ft):</span>
@@ -156,6 +177,7 @@
         const BASE_URL = 'http://162.19.205.125:9002';  // Use relative URLs
         const API_URL = BASE_URL+'/locations.json';
         const FLIGHTS_URL = BASE_URL+'/flights/';
+        const MAX_GAP_SECONDS = 600; // 10 minutes gap for connecting segments
         let map;
         let markers = [];
         let lastData = [];
@@ -196,6 +218,15 @@
             }
             
             return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function haversineKm(lat1, lon1, lat2, lon2) {
+            const toRad = x => x * Math.PI / 180;
+            const R = 6371; // km
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
         function initMap() {
@@ -249,6 +280,141 @@
             return altitude >= minAlt && altitude <= maxAlt;
         }
 
+        function formatTimestamp(ts) {
+            const num = Number(ts);
+            if (!Number.isFinite(num)) return 'N/A';
+            const d = new Date(num * 1000);
+            if (Number.isNaN(d.getTime())) return 'N/A';
+            return d.toISOString();
+        }
+
+        function parseFlightListFromHtml(html) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const links = doc.querySelectorAll('a');
+            const files = [];
+            links.forEach(link => {
+                const href = link.getAttribute('href');
+                if (href && href.endsWith('.json')) {
+                    files.push(href);
+                }
+            });
+            return files.sort();
+        }
+
+        function buildSegmentsFromPositions(positions) {
+            const sortedKeys = Object.keys(positions).sort((a, b) => parseFloat(a) - parseFloat(b));
+
+            const segments = [];
+            let currentSegment = null;
+            let pendingNull = [];
+
+            const flushPending = (attachTo) => {
+                if (!pendingNull.length) return;
+                if (!attachTo) return;
+                attachTo.points.push(...pendingNull);
+                pendingNull = [];
+            };
+
+            sortedKeys.forEach(key => {
+                const pos = positions[key];
+                if (!pos.position || pos.position.length !== 2) return;
+                const tsNum = parseFloat(key);
+                if (!Number.isFinite(tsNum)) return;
+                const [lat, lon] = pos.position;
+                const altitude = pos.altitude || 0;
+                const speed = pos.speed || 0;
+                const track = pos.track || 0;
+                const flight = (pos.flight || '').trim();
+                const point = { lat, lon, altitude, speed, track, flight, ts: tsNum };
+
+                if (!flight) {
+                    pendingNull.push(point);
+                    return;
+                }
+
+                if (pendingNull.length) {
+                    if (currentSegment) {
+                        const last = currentSegment.points[currentSegment.points.length - 1];
+                        const gap = Math.abs(pendingNull[0].ts - last.ts);
+                        if (gap <= MAX_GAP_SECONDS) {
+                            flushPending(currentSegment);
+                        } else {
+                            pendingNull = []; // too long; do not connect
+                        }
+                    } else {
+                        pendingNull = []; // no active segment to attach; drop
+                    }
+                }
+
+                if (!currentSegment || currentSegment.flight !== flight) {
+                    currentSegment = { flight, points: [] };
+                    segments.push(currentSegment);
+                }
+
+                const lastPoint = currentSegment.points[currentSegment.points.length - 1];
+                if (lastPoint) {
+                    const gapToLast = point.ts - lastPoint.ts;
+                    if (gapToLast > MAX_GAP_SECONDS) {
+                        currentSegment = { flight, points: [] };
+                        segments.push(currentSegment);
+                    }
+                }
+
+                currentSegment.points.push(point);
+            });
+
+            if (pendingNull.length && segments.length) {
+                const lastSeg = segments[segments.length - 1];
+                const lastPt = lastSeg.points[lastSeg.points.length - 1];
+                const gap = lastPt ? Math.abs(pendingNull[0].ts - lastPt.ts) : Infinity;
+                if (gap <= MAX_GAP_SECONDS) {
+                    lastSeg.points.push(...pendingNull);
+                }
+            }
+
+            return segments;
+        }
+
+        function drawSegments(segments, { fitBounds = false } = {}) {
+            const before = markers.length;
+            segments.forEach(seg => {
+                const latlngs = [];
+                seg.points.forEach(p => {
+                    const color = getAltitudeColor(p.altitude);
+                    const popupText = `<b>${(p.flight || 'N/A').trim()}</b><br>Time: ${formatTimestamp(p.ts)}<br>Position: ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}<br>Altitude: ${p.altitude.toLocaleString()} ft<br>Speed: ${p.speed} kts<br>Track: ${p.track}°`;
+                    const marker = L.circleMarker([p.lat, p.lon], {
+                        radius: 8,
+                        fillColor: color,
+                        color: color,
+                        weight: 3,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).bindPopup(popupText).on('click', function() { this.openPopup(); }).addTo(map);
+                    markers.push(marker);
+                    latlngs.push([p.lat, p.lon]);
+                });
+
+                if (latlngs.length > 1) {
+                    const polyline = L.polyline(latlngs, {
+                        color: '#0088ff',
+                        weight: 3,
+                        opacity: 0.6,
+                        smoothFactor: 1.0,
+                        pointerEvents: 'none'
+                    }).addTo(map);
+                    polylines.push(polyline);
+                }
+            });
+
+            if (fitBounds && markers.length > before) {
+                const group = new L.featureGroup(markers);
+                map.fitBounds(group.getBounds().pad(0.2));
+            }
+
+            return { markersAdded: markers.length - before, segmentCount: segments.length };
+        }
+
         function loadFlightsList() {
             fetch(FLIGHTS_URL)
                 .then(response => response.text())
@@ -256,21 +422,9 @@
                     const selector = document.getElementById('flight-list');
                     const currentValue = selector.value;
                     selector.innerHTML = '<option value="">-- All flights (live) --</option>';
-                    
-                    // Parse HTML to extract .json filenames
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const links = doc.querySelectorAll('a');
-                    const files = [];
-                    
-                    links.forEach(link => {
-                        const href = link.getAttribute('href');
-                        if (href && href.endsWith('.json')) {
-                            files.push(href);
-                        }
-                    });
-                    
-                    files.sort().forEach(filename => {
+                    const files = parseFlightListFromHtml(html);
+
+                    files.forEach(filename => {
                         const option = document.createElement('option');
                         option.value = filename.replace('.json', '');
                         option.textContent = filename;
@@ -297,49 +451,10 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.positions && Object.keys(data.positions).length > 0) {
-                        const positions = data.positions;
-                        const latlngs = [];
-                        const flightName = data.positions[Object.keys(data.positions)[0]].flight || 'Unknown';
-                        
-                        Object.keys(positions).sort((a, b) => parseFloat(a) - parseFloat(b)).forEach(ts => {
-                            const pos = positions[ts];
-                            if (pos.position && pos.position.length === 2) {
-                                const [lat, lon] = pos.position;
-                                const altitude = pos.altitude || 0;
-                                const speed = pos.speed || 0;
-                                const track = pos.track || 0;
-                                const flight = pos.flight || 'N/A';
-                                const color = getAltitudeColor(altitude);
-                                
-                                const popupText = `<b>${flight.trim()}</b><br>Position: ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>Altitude: ${altitude.toLocaleString()} ft<br>Speed: ${speed} kts<br>Track: ${track}°`;
-                                
-                                const marker = L.circleMarker([lat, lon], {
-                                    radius: 8,
-                                    fillColor: color,
-                                    color: color,
-                                    weight: 3,
-                                    opacity: 0.7,
-                                    fillOpacity: 0.6
-                                }).bindPopup(popupText).on('click', function() { this.openPopup(); }).addTo(map);
-                                markers.push(marker);
-                                latlngs.push([lat, lon]);
-                            }
-                        });
-                        
-                        if (latlngs.length > 1) {
-                            const polyline = L.polyline(latlngs, {
-                                color: '#0088ff',
-                                weight: 1,
-                                opacity: 0.6,
-                                smoothFactor: 1.0,
-                                pointerEvents: 'none'
-                            }).addTo(map);
-                            polylines.push(polyline);
-                        }
-                        
+                        const segments = buildSegmentsFromPositions(data.positions);
+                        drawSegments(segments, { fitBounds: true });
                         if (markers.length > 0) {
-                            const group = new L.featureGroup(markers);
-                            document.querySelector('.status').textContent = `${flightName.trim()} (${hex}): ${markers.length} positions`;
+                            document.querySelector('.status').textContent = `${hex}: ${markers.length} positions across ${segments.length} segment(s)`;
                         }
                     } else {
                         document.querySelector('.status').textContent = 'No positions found';
@@ -398,6 +513,96 @@
                     console.error('Error:', error);
                     document.querySelector('.status').textContent = 'Error loading locations';
                 });
+        }
+
+        function getScanRange() {
+            const minInput = document.getElementById('alt-scan-min');
+            const maxInput = document.getElementById('alt-scan-max');
+            let minVal = Math.max(0, parseInt(minInput.value, 10) || 0);
+            let maxVal = Math.max(0, parseInt(maxInput.value, 10) || 0);
+            if (minVal > maxVal) [minVal, maxVal] = [maxVal, minVal];
+            minInput.value = minVal;
+            maxInput.value = maxVal;
+            return { minVal, maxVal };
+        }
+
+        async function loadFlightsInRange() {
+            const { minVal: scanMin, maxVal: scanMax } = getScanRange();
+            selectedFlightHex = null;
+            clearMarkers();
+            clearPolylines();
+            document.querySelector('.status').textContent = `Scanning flights ${scanMin.toLocaleString()} - ${scanMax.toLocaleString()} ft...`;
+
+            let files = [];
+            try {
+                const html = await fetch(FLIGHTS_URL).then(r => r.text());
+                files = parseFlightListFromHtml(html);
+            } catch (err) {
+                console.error('Error loading flight list:', err);
+                document.querySelector('.status').textContent = 'Error loading flight list';
+                return;
+            }
+
+            if (!files.length) {
+                document.querySelector('.status').textContent = 'No flight files found';
+                return;
+            }
+
+            let matchedFlights = 0;
+            let scannedFlights = 0;
+
+            const CONCURRENCY = 8; // fetch up to 8 files at a time
+            let cursor = 0;
+
+            const worker = async () => {
+                while (true) {
+                    const idx = cursor;
+                    if (idx >= files.length) break;
+                    cursor += 1;
+                    const filename = files[idx];
+                    scannedFlights += 1;
+                    try {
+                        const data = await fetch(`${FLIGHTS_URL}${filename}`).then(r => r.json());
+                        if (!data.positions || !Object.keys(data.positions).length) continue;
+
+                        const segments = buildSegmentsFromPositions(data.positions);
+                        let flightMin = Infinity;
+                        let flightMax = -Infinity;
+                        let hasInRange = false;
+                        segments.forEach(seg => {
+                            seg.points.forEach(p => {
+                                const alt = p.altitude || 0;
+                                flightMin = Math.min(flightMin, alt);
+                                flightMax = Math.max(flightMax, alt);
+                                if (alt >= scanMin && alt <= scanMax) {
+                                    hasInRange = true;
+                                }
+                            });
+                        });
+
+                        if (hasInRange || (flightMax >= scanMin && flightMin <= scanMax)) {
+                            drawSegments(segments);
+                            matchedFlights += 1;
+                        }
+                    } catch (err) {
+                        console.error(`Error loading ${filename}:`, err);
+                    }
+
+                    if (scannedFlights % 10 === 0) {
+                        document.querySelector('.status').textContent = `Scanning... ${scannedFlights}/${files.length} files, found ${matchedFlights}`;
+                    }
+                }
+            };
+
+            const workers = Array.from({ length: CONCURRENCY }, () => worker());
+            await Promise.all(workers);
+
+            if (markers.length > 0) {
+                const group = new L.featureGroup(markers);
+                map.fitBounds(group.getBounds().pad(0.2));
+            }
+
+            document.querySelector('.status').textContent = `Flights within ${scanMin.toLocaleString()} - ${scanMax.toLocaleString()} ft: ${matchedFlights}/${files.length} (segments: ${polylines.length}, markers: ${markers.length})`;
         }
 
         function refreshMap() {
