@@ -1,21 +1,19 @@
 from notifier import sendMessage
 from checkFound import checkJSON
-from geopy import distance
 
-import json, requests, os, checkAlert, datetime, time, file_updater
-
-BASE_PATH = os.path.dirname(__file__)
-
-
-
+import json, requests, os, checkAlert, time
+import file_updater, flight_utils, flight_stats, flight_logger
 
 config = None
-with open(os.path.join(BASE_PATH, "config.json")) as f:
+with open(os.path.join(os.path.dirname(__file__), "config.json")) as f:
     config = json.load(f)
+BASE_PATH = config["files_path"]
 
 reloadEvery = config["reloadEvery"]
 URL = config["url"]
 debugMode = config["enableDebug"]
+log_all_flights = config["log_all_flights"]
+pos = (config["location"]["lat"], config["location"]["lng"])
 
 filter_list = []
 def loadFilters(local=True, online=False):
@@ -38,112 +36,22 @@ def loadFilters(local=True, online=False):
                         flt = json.loads(req.content)
                         filter_list.append(flt)
 
-def getDistance(location) -> float: 
-    if config["location"]["lat"] is None or config["location"]["lng"] is None: 
-        print("No location inputted in config.json!")
-        return None
-    pos = (config["location"]["lat"], config["location"]["lng"])
-    dist = distance.great_circle(pos, location).kilometers
-    return round(dist, 2)
-
-newPlanes = []
-maxStats = {"distance": 0, "altitude": 0, "speed": 0}
-minStats = {"distance": 0, "altitude": 0, "speed": 0}
-totals = {"distance": 0, "altitude": 0, "speed": 0}
-amounts = {"distance": 0, "altitude": 0, "speed": 0}
-
-def getAverage(value1, value2, decimals=2):
-    if value1==None or value1==0 or value2==None or value2==0:
-        return None
-    else:
-        return round(value1/value2, decimals)
-
-def createStats():
-    if debugMode: print(
-        maxStats,
-        minStats,
-        totals,
-        amounts
-    )
-    now: str = datetime.datetime.now().strftime("%H_%M_%S-%d_%m_%Y")
-    epoch = time.time()
-    fileName: str = f"{now}.json"
-    print(f"Creating {fileName} ...")
-    jsonData = {
-        "epoch": epoch,
-        "planes": len(newPlanes),
-        "max": {
-            "distance": None if maxStats["distance"] == 0 else maxStats["distance"],
-            "altitude": None if maxStats["altitude"] == 0 else maxStats["altitude"],
-            "speed": None if maxStats["speed"] == 0 else maxStats["speed"]
-        },
-        "avg": {
-            "distance": getAverage(totals["distance"], amounts["distance"]),
-            "altitude": getAverage(totals["altitude"], amounts["altitude"]),
-            "speed": getAverage(totals["speed"], amounts["speed"])
-        },
-        "min": {
-            "distance": None if minStats["distance"] == 0 else minStats["distance"],
-            "altitude": None if minStats["altitude"] == 0 else minStats["altitude"],
-            "speed": None if minStats["speed"] == 0 else minStats["speed"]
-        },
-        "new": newPlanes
-    }
-    with open(os.path.join(BASE_PATH, "flight-stats", "times", fileName), "w") as f:
-        f.write(json.dumps(jsonData, indent=4))
-
-
-def checkStats(dist, alt, spd):
-    # distance
-    if dist is not None and dist > 0:
-        totals["distance"] += dist
-        amounts["distance"] += 1
-        if dist > maxStats["distance"]:
-            maxStats["distance"] = dist
-        if dist < minStats["distance"] or minStats["distance"]==0:
-            minStats["distance"] = dist
-    # altitude
-    if alt is not None and alt > 0:
-        totals["altitude"] += alt
-        amounts["altitude"] += 1
-        if alt > maxStats["altitude"]:
-            maxStats["altitude"] = alt
-        if alt < minStats["altitude"] or minStats["altitude"]==0:
-            minStats["altitude"] = alt
-    # speed
-    if spd is not None and spd > 0:
-        totals["speed"] += spd
-        amounts["speed"] += 1
-        if spd > maxStats["speed"]:
-            maxStats["speed"] = spd
-        if spd < minStats["speed"] or minStats["speed"]==0:
-            minStats["speed"] = spd
-        
-
-loadFilters(online=True)
-time.sleep(2)
-
-reloadStatsEvery = 30
-reloadFilesEvery = 15
-
 records = {
     "distance": None, # furthest distance
     "altitude": None, # highest plane
     "speed": None # fastest plane
 }
 
-def updateStats(plane, dist, extra):
-    with open(os.path.join(BASE_PATH, "flight-stats", "records", "records.json"), "w") as f:
-        f.write(json.dumps(records, indent=4))
-    now: str = datetime.datetime.now().strftime("%H_%M_%S-%d_%m_%Y")
-    with open(os.path.join(BASE_PATH, "flight-stats", "records", f"records-planes_{now}.txt"), "w") as recordsFile:
-        recordStr = f"{plane["hex"]} at {now}\n -  {plane["lat"]}, {plane["lon"]}\n\n"
-        recordStr += f"Stats:\n - {plane["speed"]}kts\n - {plane["altitude"]}ft\n - {dist}km"
-        recordStr += f"\n\nNew record: {extra}"
-        if debugMode: print(recordStr)
-        recordsFile.write(recordStr)
+loadFilters(online=True)
+time.sleep(2)
 
-
+newPlanes = []
+maxStats = {"distance": 0, "altitude": 0, "speed": 0}
+minStats = {"distance": 0, "altitude": 0, "speed": 0}
+totals = {"distance": 0, "altitude": 0, "speed": 0}
+amounts = {"distance": 0, "altitude": 0, "speed": 0}
+reloadStatsEvery = 30
+reloadFilesEvery = 15
 num_reloadConfig: int = 0
 num_reloadStats: int = 0
 num_reloadFiles: int = 0
@@ -153,8 +61,8 @@ while True:
     if req.status_code == 200:
         try:
             # Load files once per iteration, not per plane
-            seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
-            found_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
+            seen_file = os.path.join(BASE_PATH, "seen_coords.txt")
+            found_file = os.path.join(BASE_PATH, "found_hex.txt")
 
             if not os.path.exists(seen_file):
                 with open(seen_file, "w") as f: f.close()
@@ -165,8 +73,8 @@ while True:
             data = req.json()
             if debugMode: print(data)
 
-            if os.path.exists(os.path.join(BASE_PATH, "flight-stats", "records", "records.json")):
-                with open(os.path.join(BASE_PATH, "flight-stats", "records", "records.json"), "r") as f:
+            if os.path.exists(os.path.join(BASE_PATH, "records", "records.json")):
+                with open(os.path.join(BASE_PATH, "records", "records.json"), "r") as f:
                     records = json.load(f)
 
             seen_coords = []
@@ -184,7 +92,7 @@ while True:
                     found_hexes = [line.strip() for line in f.readlines()]
 
             for plane in data:
-                dist = getDistance((plane["lat"], plane["lon"]))
+                dist = flight_utils.getDistance((plane["lat"], plane["lon"]))
                 if limit_distance!=-1:
                     if dist > limit_distance:
                         if debugMode: print(f"skipping: {dist}, {limit_distance}")
@@ -205,10 +113,11 @@ while True:
                     with open(found_file, "a") as f:
                         f.write(plane["hex"] + "\n")
 
-                checkStats(
+                flight_stats.checkStats(
                     dist,
                     plane["altitude"],
-                    plane["speed"]
+                    plane["speed"],
+                    maxStats, minStats, totals, amounts
                 )
                 if records["distance"]==None or dist > records["distance"]:
                     records["distance"]=dist
@@ -224,6 +133,7 @@ while True:
                     print(f"Speed = {plane["speed"]}kts")
 
 
+                flight_logger.logFlight(plane, debugMode)
 
                 
                 for FILTER in filter_list:
@@ -238,7 +148,7 @@ while True:
 
                 newMax = [item for item in newMax if item is not None]
                 if len(newMax) > 0: 
-                    updateStats(plane, dist, '\n'+'\n'.join(f" - {m}" for m in newMax))
+                    flight_stats.updateStats(plane, dist, '\n'+'\n'.join(f" - {m}" for m in newMax), records, debugMode)
         except ValueError:
             print("Failed to parse JSON")
     else:
@@ -248,7 +158,7 @@ while True:
         loadFilters()
     if num_reloadStats>reloadStatsEvery:
         num_reloadStats = 0
-        createStats()
+        flight_stats.createStats(maxStats, minStats, totals, amounts, newPlanes, debugMode)
         # Clear accumulated data
         newPlanes = []
         maxStats = {"distance": 0, "altitude": 0, "speed": 0}

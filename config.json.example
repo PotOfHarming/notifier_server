@@ -8,5 +8,7 @@
     },
     "enableDebug": false,
     "web_path": "",
-    "limit_distance": 2000
+    "limit_distance": 2000,
+    "files_path": "X\\flight-stats",
+    "log_all_flights": true
 }

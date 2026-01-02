@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plane Locations Map</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #map {
+            flex: 1;
+            filter: grayscale(70%);
+        }
+        .info-panel {
+            padding: 10px;
+            background: #f0f0f0;
+            border-top: 1px solid #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .status {
+            font-size: 14px;
+        }
+        .range-filter {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            min-width: 260px;
+        }
+        .flight-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            min-width: 180px;
+        }
+        #flight-list {
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #444;
+        }
+        .dual-slider {
+            position: relative;
+            width: 240px;
+            height: 24px;
+        }
+        .dual-slider input[type=range] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            pointer-events: none;
+            -webkit-appearance: none;
+            background: none;
+        }
+        .dual-slider input[type=range]::-webkit-slider-thumb {
+            pointer-events: all;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #007bff;
+            border: 2px solid white;
+            box-shadow: 0 0 2px rgba(0,0,0,0.4);
+            -webkit-appearance: none;
+        }
+        .dual-slider input[type=range]::-moz-range-thumb {
+            pointer-events: all;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #007bff;
+            border: 2px solid white;
+            box-shadow: 0 0 2px rgba(0,0,0,0.4);
+        }
+        .dual-slider input[type=range]::-webkit-slider-runnable-track {
+            height: 6px;
+            background: linear-gradient(90deg, #0000ff, #8000ff, #ff0000, #000000);
+            border-radius: 3px;
+        }
+        .dual-slider input[type=range]::-moz-range-track {
+            height: 6px;
+            background: linear-gradient(90deg, #0000ff, #8000ff, #ff0000, #000000);
+            border-radius: 3px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info-panel">
+        <span class="status">Click refresh to load</span>
+        <div class="flight-selector">
+            <label>Select Flight:
+                <select id="flight-list" onchange="loadSelectedFlight()">
+                    <option value="">-- All flights (live) --</option>
+                </select>
+            </label>
+        </div>
+        <div class="range-filter">
+            <div class="slider-row">
+                <span>Altitude range (ft):</span>
+                <span id="alt-values"></span>
+            </div>
+            <div class="dual-slider">
+                <input id="alt-min" type="range" min="0" max="75000" step="500" value="0" oninput="onAltitudeChange()">
+                <input id="alt-max" type="range" min="0" max="75000" step="500" value="75000" oninput="onAltitudeChange()">
+            </div>
+            <div class="slider-labels">
+                <span>0</span>
+                <span>20k</span>
+                <span>40k</span>
+                <span>60k</span>
+                <span>75k</span>
+            </div>
+        </div>
+        <button onclick="refreshMap()">Refresh</button>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://162.19.205.125:9002';  // Use relative URLs
+        const API_URL = BASE_URL+'/locations.json';
+        const FLIGHTS_URL = BASE_URL+'/flights/';
+        let map;
+        let markers = [];
+        let lastData = [];
+        let minAlt = 0;
+        let maxAlt = 75000;
+        let polylines = [];
+        let selectedFlightHex = null;
+
+        function getMarkerRadius() {
+            const zoom = map ? map.getZoom() : 2;
+            if (zoom >= 15) return 5;
+            if (zoom >= 11) return 3.5;
+            if (zoom >= 6) return 2;
+            return 1;
+        }
+
+        function getAltitudeColor(altitude) {
+            // Gradient from blue (0) -> purple (20k) -> red (40k) -> black (60k+)
+            const maxAlt = 75000;
+            const norm = Math.min(altitude / maxAlt, 1); // normalize 0-1
+            
+            let r, g, b;
+            if (norm < 0.267) { // 0-20k: blue to purple
+                const t = norm / 0.267;
+                r = Math.round(128 * t);
+                g = 0;
+                b = Math.round(255 - 128 * t);
+            } else if (norm < 0.533) { // 20k-40k: purple to red
+                const t = (norm - 0.267) / 0.266;
+                r = Math.round(128 + 127 * t);
+                g = 0;
+                b = Math.round(128 - 128 * t);
+            } else { // 40k-75k: red to black
+                const t = (norm - 0.533) / 0.467;
+                r = Math.round(255 - 255 * t);
+                g = 0;
+                b = 0;
+            }
+            
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            map.on('zoomend', updateMarkerSizes);
+        }
+
+        function clearMarkers() {
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+        }
+
+        function clearPolylines() {
+            polylines.forEach(line => map.removeLayer(line));
+            polylines = [];
+        }
+
+        function updateMarkerSizes() {
+            const radius = getMarkerRadius();
+            markers.forEach(marker => marker.setRadius(radius));
+        }
+
+        function onAltitudeChange() {
+            const minInput = document.getElementById('alt-min');
+            const maxInput = document.getElementById('alt-max');
+            let minVal = parseInt(minInput.value, 10);
+            let maxVal = parseInt(maxInput.value, 10);
+
+            if (minVal > maxVal) {
+                // keep knobs from crossing
+                [minVal, maxVal] = [maxVal, minVal];
+            }
+
+            minAlt = minVal;
+            maxAlt = maxVal;
+
+            // reflect corrected values back to inputs
+            minInput.value = minAlt;
+            maxInput.value = maxAlt;
+
+            const display = document.getElementById('alt-values');
+            display.textContent = `${minAlt.toLocaleString()} - ${maxAlt.toLocaleString()} ft`;
+        }
+
+        function matchesAltitude(altitude) {
+            return altitude >= minAlt && altitude <= maxAlt;
+        }
+
+        function loadFlightsList() {
+            fetch(FLIGHTS_URL)
+                .then(response => response.text())
+                .then(html => {
+                    const selector = document.getElementById('flight-list');
+                    const currentValue = selector.value;
+                    selector.innerHTML = '<option value="">-- All flights (live) --</option>';
+                    
+                    // Parse HTML to extract .json filenames
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const links = doc.querySelectorAll('a');
+                    const files = [];
+                    
+                    links.forEach(link => {
+                        const href = link.getAttribute('href');
+                        if (href && href.endsWith('.json')) {
+                            files.push(href);
+                        }
+                    });
+                    
+                    files.sort().forEach(filename => {
+                        const option = document.createElement('option');
+                        option.value = filename.replace('.json', '');
+                        option.textContent = filename;
+                        selector.appendChild(option);
+                    });
+                    
+                    selector.value = currentValue;
+                })
+                .catch(error => console.error('Error loading flights:', error));
+        }
+
+        function loadSelectedFlight() {
+            const selector = document.getElementById('flight-list');
+            const hex = selector.value;
+            selectedFlightHex = hex;
+            if (!hex) {
+                refreshMap();
+                return;
+            }
+            clearMarkers();
+            clearPolylines();
+            document.querySelector('.status').textContent = 'Loading flight...';
+            fetch(`${FLIGHTS_URL}${hex}.json`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.positions && Object.keys(data.positions).length > 0) {
+                        const positions = data.positions;
+                        const latlngs = [];
+                        const flightName = data.positions[Object.keys(data.positions)[0]].flight || 'Unknown';
+                        
+                        Object.keys(positions).sort((a, b) => parseFloat(a) - parseFloat(b)).forEach(ts => {
+                            const pos = positions[ts];
+                            if (pos.position && pos.position.length === 2) {
+                                const [lat, lon] = pos.position;
+                                const altitude = pos.altitude || 0;
+                                const speed = pos.speed || 0;
+                                const track = pos.track || 0;
+                                const flight = pos.flight || 'N/A';
+                                const color = getAltitudeColor(altitude);
+                                
+                                const popupText = `<b>${flight.trim()}</b><br>Position: ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>Altitude: ${altitude.toLocaleString()} ft<br>Speed: ${speed} kts<br>Track: ${track}°`;
+                                
+                                const marker = L.circleMarker([lat, lon], {
+                                    radius: 8,
+                                    fillColor: color,
+                                    color: color,
+                                    weight: 3,
+                                    opacity: 0.7,
+                                    fillOpacity: 0.6
+                                }).bindPopup(popupText).on('click', function() { this.openPopup(); }).addTo(map);
+                                markers.push(marker);
+                                latlngs.push([lat, lon]);
+                            }
+                        });
+                        
+                        if (latlngs.length > 1) {
+                            const polyline = L.polyline(latlngs, {
+                                color: '#0088ff',
+                                weight: 1,
+                                opacity: 0.6,
+                                smoothFactor: 1.0,
+                                pointerEvents: 'none'
+                            }).addTo(map);
+                            polylines.push(polyline);
+                        }
+                        
+                        if (markers.length > 0) {
+                            const group = new L.featureGroup(markers);
+                            document.querySelector('.status').textContent = `${flightName.trim()} (${hex}): ${markers.length} positions`;
+                        }
+                    } else {
+                        document.querySelector('.status').textContent = 'No positions found';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.querySelector('.status').textContent = 'Error loading flight';
+                });
+        }
+
+        function renderMarkers(data) {
+            clearMarkers();
+            if (!Array.isArray(data) || data.length === 0) {
+                document.querySelector('.status').textContent = 'No locations found';
+                return;
+            }
+
+            const radius = getMarkerRadius();
+            data.forEach(coord => {
+                if (Array.isArray(coord) && coord.length >= 2) {
+                    const [lat, lon, alt] = coord;
+                    const altitude = alt || 0;
+                    if (!matchesAltitude(altitude)) return;
+                    const color = getAltitudeColor(altitude);
+                    const marker = L.circleMarker([lat, lon], {
+                        radius,
+                        fillColor: color,
+                        color: color,
+                        weight: 1,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).bindPopup(`${lat.toFixed(3)}, ${lon.toFixed(3)}<br>${altitude.toLocaleString()}ft`).on('click', function() { this.openPopup(); }).addTo(map);
+                    markers.push(marker);
+                }
+            });
+
+            if (markers.length > 0) {
+                const group = new L.featureGroup(markers);
+                map.fitBounds(group.getBounds().pad(0.1));
+                updateMarkerSizes();
+                document.querySelector('.status').textContent = `Loaded ${markers.length} locations`;
+            } else {
+                document.querySelector('.status').textContent = 'No locations in this filter';
+            }
+        }
+
+        function loadLocations() {
+            fetch(API_URL)
+                .then(response => response.json())
+                .then(data => {
+                    lastData = Array.isArray(data) ? data : [];
+                    renderMarkers(lastData);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.querySelector('.status').textContent = 'Error loading locations';
+                });
+        }
+
+        function refreshMap() {
+            document.querySelector('.status').textContent = 'Refreshing...';
+            loadLocations();
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initMap();
+            onAltitudeChange();
+            loadFlightsList();
+            document.querySelector('.status').textContent = 'Click refresh to load';
+        });
+    </script>
+</body>
+</html>
