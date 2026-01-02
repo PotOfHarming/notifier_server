@@ -29,7 +29,7 @@ def logFlight(plane, debugMode):
             }
         }
     """
-    if debugMode: print(f"Writing for {plane["hex"]}")
+    if debugMode==True: print(f"Writing for {plane["hex"]}")
     data = {}
     unix = time.time()
     now: str = datetime.datetime.now().strftime("%H:%M:%S %d-%m-%Y")
@@ -37,12 +37,12 @@ def logFlight(plane, debugMode):
     if os.path.exists(f):
         with open(f, "r") as d:
             data = json.load(d)
-    if debugMode: print(data)
+    if debugMode==True: print(data)
 
     if data == {}:
         data["hex"] = plane["hex"]
         data["first_seen"] = {"text": now, "unix": unix}
-    if debugMode: print(data)
+    if debugMode==True: print(data)
 
     data.setdefault("positions", {})
     data["last_seen"] = {"text": now, "unix": unix}
@@ -63,5 +63,5 @@ def logFlight(plane, debugMode):
     os.makedirs(os.path.dirname(f), exist_ok=True)
     with open(f, "w") as d:
         json.dump(data, d, indent=2)
-        if debugMode: print("Dumped data")
+        if debugMode==True: print("Dumped data")
     

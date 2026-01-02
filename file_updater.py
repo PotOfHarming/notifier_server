@@ -2,17 +2,17 @@ import json, os, time, psutil
 
 BASE_PATH = os.path.dirname(__file__)
 
-with open(os.path.join(BASE_PATH, "config.json")) as f:
+with open(os.path.join(BASE_PATH, "config.json"), "r") as f:
     config = json.load(f)
 WEB_PATH = config.get("web_path", BASE_PATH)
+FILES_PATH = config.get("files_path", BASE_PATH)
 
-records_file = os.path.join(BASE_PATH, "flight-stats", "records", "records.json")
-stats_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
-hexes_file = os.path.join(BASE_PATH, "flight-stats", "found_hex.txt")
-seen_file = os.path.join(BASE_PATH, "flight-stats", "seen_coords.txt")
+records_file = os.path.join(FILES_PATH, "records", "records.json")
+hexes_file = os.path.join(FILES_PATH, "found_hex.txt")
+seen_file = os.path.join(FILES_PATH, "seen_coords.txt")
 
 def write_config():
-    with open(os.path.join(BASE_PATH, "config.json")) as f:
+    with open(os.path.join(WEB_PATH, "config.json")) as f:
         config = json.load(f)
     output_file = os.path.join(WEB_PATH, "config.json")
     with open(output_file, "w") as f:
@@ -24,11 +24,15 @@ def write_stats():
             records = json.load(f)
     else:
         records = ["Could not find records.json"]
-    if os.path.exists(stats_file):
-        with open(stats_file, "r") as f:
+        print("Could not find records.json")
+        print(f"({records_file})")
+    if os.path.exists(hexes_file):
+        with open(hexes_file, "r") as f:
             stats = len(f.readlines())
     else:
         stats = "Could not find found_hex.txt"
+        print("Could not find found_hex.txt")
+        print(f"({records_file})")
     uptime_seconds = int(time.time() - psutil.boot_time())
     hours = uptime_seconds // 3600
     minutes = (uptime_seconds % 3600) // 60
