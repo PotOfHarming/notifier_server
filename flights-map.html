@@ -302,7 +302,7 @@
             return files.sort();
         }
 
-        function buildSegmentsFromPositions(positions) {
+        function buildSegmentsFromPositions(positions, hexTag = 'N/A') {
             const sortedKeys = Object.keys(positions).sort((a, b) => parseFloat(a) - parseFloat(b));
 
             const segments = [];
@@ -348,7 +348,7 @@
                 }
 
                 if (!currentSegment || currentSegment.flight !== flight) {
-                    currentSegment = { flight, points: [] };
+                    currentSegment = { flight, hex: hexTag, points: [] };
                     segments.push(currentSegment);
                 }
 
@@ -356,7 +356,7 @@
                 if (lastPoint) {
                     const gapToLast = point.ts - lastPoint.ts;
                     if (gapToLast > MAX_GAP_SECONDS) {
-                        currentSegment = { flight, points: [] };
+                        currentSegment = { flight, hex: hexTag, points: [] };
                         segments.push(currentSegment);
                     }
                 }
@@ -376,13 +376,22 @@
             return segments;
         }
 
+        function filterSegmentsByAltitude(segments, minBand, maxBand) {
+            return segments
+                .map(seg => {
+                    const pts = seg.points.filter(p => p.altitude >= minBand && p.altitude <= maxBand);
+                    return { ...seg, points: pts };
+                })
+                .filter(seg => seg.points.length > 0);
+        }
+
         function drawSegments(segments, { fitBounds = false } = {}) {
             const before = markers.length;
             segments.forEach(seg => {
                 const latlngs = [];
                 seg.points.forEach(p => {
                     const color = getAltitudeColor(p.altitude);
-                    const popupText = `<b>${(p.flight || 'N/A').trim()}</b><br>Time: ${formatTimestamp(p.ts)}<br>Position: ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}<br>Altitude: ${p.altitude.toLocaleString()} ft<br>Speed: ${p.speed} kts<br>Track: ${p.track}°`;
+                    const popupText = `<b>${(p.flight || 'N/A').trim()}</b> (${seg.hex || 'N/A'})<br>Time: ${formatTimestamp(p.ts)}<br>Position: ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}<br>Altitude: ${p.altitude.toLocaleString()} ft<br>Speed: ${p.speed} kts<br>Track: ${p.track}°`;
                     const marker = L.circleMarker([p.lat, p.lon], {
                         radius: 8,
                         fillColor: color,
@@ -451,7 +460,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.positions && Object.keys(data.positions).length > 0) {
-                        const segments = buildSegmentsFromPositions(data.positions);
+                        const segments = buildSegmentsFromPositions(data.positions, hex);
                         drawSegments(segments, { fitBounds: true });
                         if (markers.length > 0) {
                             document.querySelector('.status').textContent = `${hex}: ${markers.length} positions across ${segments.length} segment(s)`;
@@ -565,7 +574,8 @@
                         const data = await fetch(`${FLIGHTS_URL}${filename}`).then(r => r.json());
                         if (!data.positions || !Object.keys(data.positions).length) continue;
 
-                        const segments = buildSegmentsFromPositions(data.positions);
+                        const hexTag = filename.replace('.json', '');
+                        const segments = buildSegmentsFromPositions(data.positions, hexTag);
                         let flightMin = Infinity;
                         let flightMax = -Infinity;
                         let hasInRange = false;
@@ -580,9 +590,13 @@
                             });
                         });
 
-                        if (hasInRange || (flightMax >= scanMin && flightMin <= scanMax)) {
-                            drawSegments(segments);
-                            matchedFlights += 1;
+                        // Only include flights with at least one point truly inside the band
+                        if (hasInRange) {
+                            const filteredSegs = filterSegmentsByAltitude(segments, scanMin, scanMax);
+                            if (filteredSegs.length) {
+                                drawSegments(filteredSegs);
+                                matchedFlights += 1;
+                            }
                         }
                     } catch (err) {
                         console.error(`Error loading ${filename}:`, err);
